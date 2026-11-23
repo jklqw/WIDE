@@ -389,3 +389,62 @@ direct deployments; a trusted-proxy deployment must revisit
 `trustProxy`. Email verification / password reset flows are out of scope.
 Timing equalization for unknown-email logins is a documented residual
 risk (argon2 cost dominates but is not perfectly constant).
+
+---
+
+## Section 07 — Workspace Management & Ownership Authorization
+
+- **Commit:** `pending` (`feat(workspace): add workspace CRUD APIs, template hydration, and tenant ownership checks`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Implemented full workspace lifecycle: list (search + `updatedAt DESC`),
+create with starter-template hydration into the storage root, read,
+update (rename/description/runtime preference), and soft-delete with
+on-disk cleanup. Centralized `assertWorkspaceAccess` enforces ownership
+on every workspace-scoped route; cross-tenant access returns 404.
+
+### 2. Key Files Created / Modified
+
+- `apps/api/src/services/authorization.ts` — `assertWorkspaceAccess` (owner or member; 404 on denial).
+- `apps/api/src/services/workspace-storage.ts` — `workspaceRoot` (opaque `storageKey` jail) + `hydrateWorkspace` for trusted template files.
+- `apps/api/src/routes/workspaces.ts` — 5 CRUD endpoints, 20-workspace quota, audit events, rollback on hydration failure.
+- `apps/api/src/routes/workspaces.test.ts` — 6 integration tests incl. cross-tenant denial.
+
+### 3. Architecture & Optimization Decisions
+
+`storageKey` (`ws_<192-bit base64url>`) is generated server-side and never
+derived from user input — the DB `id` and disk path are fully decoupled.
+Template hydration happens inside the create transaction's aftermath with
+DB rollback on failure, so users never see an empty/broken workspace.
+Soft-delete (`deletedAt`) preserves referential integrity for jobs,
+terminals, and audit events while immediately hiding the workspace.
+Quota check uses a `count` query before insert (adequate at this scale;
+serializable enforcement can be added if abuse appears).
+
+### 4. Security Controls & Threat Mitigation
+
+- Every workspace route runs `requireAuth` + `assertWorkspaceAccess`;
+  workspace IDs alone grant nothing.
+- Cross-tenant probing gets uniform `404 WORKSPACE_NOT_FOUND` — no
+  existence oracle.
+- Delete path re-validates `realpath` containment under the storage root
+  before `rm -rf` (defense in depth; hardened engine lands in Commit 8).
+- Mutations pass through the global CSRF guard (Commit 6).
+- Audit events for create/delete/rename.
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/api test` — PASS (17/17 total; 6 new workspace tests).
+- `pnpm --filter @ide/api typecheck` — PASS.
+- `pnpm --filter @ide/api lint` — PASS.
+- Verified on disk: `main.py` hydrated under `<root>/<storageKey>/`;
+  storage removed after delete.
+
+### 6. Known Limitations / Follow-ups
+
+`workspace-storage.ts` is intentionally minimal — it only writes
+server-trusted template paths. All user-controlled path operations move
+behind the hardened filesystem engine in Commit 8.
