@@ -7,7 +7,7 @@
 | 01     | Monorepo foundation, tooling, agent memory    | done        |
 | 02     | Local infra (Postgres+Redis compose)          | done        |
 | 03     | Shared contracts (Zod)                        | done        |
-| 04     | Database schema + templates                   | pending     |
+| 04     | Database schema + templates                   | done        |
 | 05     | API bootstrap, env validation, health         | pending     |
 | 06     | security(auth) sessions/CSRF/rate limits      | pending     |
 | 07     | Workspace CRUD + ownership                    | pending     |

@@ -198,3 +198,63 @@ differential risk.
 Runtime image allowlist and capability-token payload schemas are defined
 in `packages/sandbox` (Commit 10/12) since they are runner-internal
 concerns, not browser-facing DTOs.
+
+---
+
+## Section 04 — Database Schema, Migrations & Starter Templates
+
+- **Commit:** `pending` (`feat(db): add Prisma schema, initial migrations, indexes, and starter templates`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Created `packages/database` (`@ide/database`) with the full relational
+model for the platform: users, sessions, workspaces, workspace members,
+execution jobs, terminal sessions, and audit events. Applied the initial
+Prisma migration against PostgreSQL 16 and added nine version-controlled,
+runnable starter templates plus an idempotent seed script.
+
+### 2. Key Files Created / Modified
+
+- `packages/database/prisma/schema.prisma` — all models, enums (`UserStatus`, `ExecutionStatus`), composite indexes.
+- `packages/database/prisma/migrations/20261123170949_init/` — applied migration.
+- `packages/database/prisma/seed.ts` — idempotent demo-user seed (login disabled by design).
+- `packages/database/src/templates.ts` — `STARTER_TEMPLATES` for blank/python/javascript/typescript/c/cpp/java/go/html-web.
+- `packages/database/src/index.ts` — `PrismaClient` factory + template exports.
+
+### 3. Architecture & Optimization Decisions
+
+- `Session` stores only `tokenHash` (SHA-256) — raw tokens never persist.
+- `Workspace.storageKey` is an opaque unique key decoupling DB identity
+  from on-disk paths (enables the storage jail in Commit 8).
+- `Workspace.deletedAt` soft-delete preserves audit history; hard cleanup
+  of storage/sandboxes happens in the service layer.
+- Composite indexes `[ownerId, updatedAt]` (workspace list sort),
+  `[workspaceId, queuedAt DESC]` (job history), `[expiresAt]` (session &
+  terminal reapers), `[tokenHash]` unique lookup.
+- `ExecutionJob` records both `compileDurationMs` and `durationMs` plus
+  `resourceLimitReason` for honest observability of sandbox runs.
+
+### 4. Security Controls & Threat Mitigation
+
+- Email stored twice: `email` (display) and `emailNorm` (unique normalized
+  lookup) prevents case-variant duplicate accounts.
+- Cascade deletes keep referential integrity; `AuditEvent.userId` uses
+  `SetNull` so audit trail survives user deletion.
+- No secrets or hashes of real credentials in seed; demo user has
+  un-unlockable placeholder hash.
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/database exec prisma migrate dev --name init` — PASS, migration applied, client generated (Prisma 6.19.3).
+- `pnpm --filter @ide/database build` — PASS.
+- `pnpm --filter @ide/database seed` — PASS ("seeded demo user").
+- `pnpm --filter @ide/database typecheck` — PASS.
+- `pnpm --filter @ide/database lint` — PASS.
+
+### 6. Known Limitations / Follow-ups
+
+Templates are plain data hydrated into the workspace storage jail at
+creation time (Commit 7). Migrations are forward-only; `migrate deploy` is
+used for repeatable environments.
