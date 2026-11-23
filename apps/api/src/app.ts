@@ -10,6 +10,9 @@ import { ZodError } from "zod";
 import type { AppEnv } from "./config/env.js";
 import { AppError } from "./lib/errors.js";
 import { healthRoutes } from "./routes/health.js";
+import { authRoutes } from "./routes/auth.js";
+import { authPlugin } from "./plugins/auth.js";
+import { csrfGuard, csrfPlugin } from "./plugins/csrf.js";
 import type { PrismaClient } from "@prisma/client";
 import { Redis } from "ioredis";
 
@@ -136,7 +139,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     });
   });
 
+  // Decorate the root instance directly (not via register) so route
+  // plugins see app.requireAuth / app.prisma / app.redis.
+  await authPlugin(app);
+  await csrfPlugin(app);
+  app.addHook("preHandler", csrfGuard);
+
   await app.register(healthRoutes);
+  await app.register(authRoutes);
 
   return app;
 }

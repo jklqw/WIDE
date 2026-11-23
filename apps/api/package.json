@@ -21,6 +21,7 @@
     "@ide/contracts": "workspace:*",
     "@ide/database": "workspace:*",
     "@prisma/client": "^6.2.0",
+    "argon2": "^0.45.2",
     "bullmq": "^5.30.0",
     "fastify": "^5.2.0",
     "ioredis": "^5.4.0",

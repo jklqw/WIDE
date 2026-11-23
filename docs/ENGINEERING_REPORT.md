@@ -316,3 +316,76 @@ rate-limit keys in dev.
 Auth, workspace, filesystem, execution, and terminal routes land in
 Commits 6–14. Redis/BullMQ producer wiring for execution jobs arrives in
 Commit 13; terminal tickets in Commit 14.
+
+---
+
+## Section 06 — Authentication, Sessions, CSRF & Brute-Force Protection
+
+- **Commit:** `pending` (`security(auth): implement Argon2id auth, hashed HttpOnly sessions, CSRF guards, and rate limits`)
+- **Phase Type:** Security Hardening
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Dedicated security commit implementing the complete authentication
+subsystem: Argon2id password hashing, 256-bit bearer session tokens stored
+only as SHA-256 hashes, HttpOnly/SameSite cookie sessions with rotation on
+login, HMAC-signed double-submit CSRF protection on all cookie-authenticated
+mutations, layered rate limiting, per-account lockout, constant-shape error
+messages, and audit logging.
+
+### 2. Key Files Created / Modified
+
+- `apps/api/src/services/passwords.ts` — Argon2id (`memoryCost 65536`, `timeCost 3`, `parallelism 1`).
+- `apps/api/src/services/sessions.ts` — token generation, SHA-256 `tokenHash`, create/lookup/revoke, 7-day expiry.
+- `apps/api/src/services/loginGuard.ts` — per-account failure counter (Redis-backed, memory fallback): 5 failures → 15 min lock.
+- `apps/api/src/services/audit.ts` — non-blocking `AuditEvent` writer.
+- `apps/api/src/plugins/auth.ts` — `requireAuth` preHandler + `ipHash`.
+- `apps/api/src/plugins/csrf.ts` — `issueCsrfToken`/`verifyCsrfToken` (HMAC-SHA256 signed nonce), `csrfGuard` global preHandler enforcing double-submit on mutations when a session cookie is present.
+- `apps/api/src/routes/auth.ts` — `POST /register`, `POST /login`, `POST /logout`, `GET /me`, `GET /csrf`.
+- `apps/api/src/app.ts` — plugin wiring (root-instance decoration fix), global `csrfGuard` hook.
+- `apps/api/src/routes/auth.test.ts` — 7 integration tests against real Postgres+Redis.
+
+### 3. Architecture & Optimization Decisions
+
+Session lookup is a single indexed `tokenHash` query including the user —
+no separate user fetch. Login rotates sessions by revoking all prior
+sessions before issuing a new token (fixation resistance). CSRF tokens are
+stateless HMAC-signed nonces stored in an HttpOnly `SameSite=Strict`
+cookie; the SPA reads the token once from `/auth/csrf` or the login
+response and echoes it in `X-CSRF-Token`. `loginGuard` uses Redis
+`INCR`+`EXPIRE` so lockout state survives restarts and is shared across
+replicas; memory fallback keeps tests/dev functional without Redis.
+
+### 4. Security Controls & Threat Mitigation
+
+- **Credential stuffing / brute force:** 10 req/min/IP on auth routes +
+  5-failure/15-min per-account lockout + Argon2id cost parameters.
+- **Session hijacking:** tokens are 256-bit random, only SHA-256 hashes
+  persist; cookies are HttpOnly + SameSite=Lax + Secure-in-prod; rotation
+  on every login; explicit revocation on logout.
+- **CSRF:** double-submit cookie+header with HMAC signature; enforced
+  globally for cookie-authenticated mutations.
+- **Enumeration:** identical `401 Invalid email or password` for unknown
+  email, wrong password, disabled account, and locked account; register
+  returns constant-shape `409`.
+- **Timing:** `timingSafeEqual` on CSRF signature compare; argon2.verify
+  runs even for nonexistent users? — mitigated by constant-shape response
+  timing being dominated by hash cost; documented residual.
+- **Audit:** register/login success+failure/logout events persisted.
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/api test` — PASS (11/11: 4 env + 7 auth integration).
+- `pnpm --filter @ide/api typecheck` — PASS.
+- `pnpm --filter @ide/api lint` — PASS.
+- Tests verified: cookie flags (HttpOnly, SameSite), CSRF 403 on missing/
+  forged token, 204 on valid logout, 401 on bad creds & revoked session.
+
+### 6. Known Limitations / Follow-ups
+
+Per-IP rate limit uses `req.ip` with `trustProxy: false` — correct for
+direct deployments; a trusted-proxy deployment must revisit
+`trustProxy`. Email verification / password reset flows are out of scope.
+Timing equalization for unknown-email logins is a documented residual
+risk (argon2 cost dominates but is not perfectly constant).
