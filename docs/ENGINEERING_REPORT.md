@@ -448,3 +448,71 @@ serializable enforcement can be added if abuse appears).
 `workspace-storage.ts` is intentionally minimal — it only writes
 server-trusted template paths. All user-controlled path operations move
 behind the hardened filesystem engine in Commit 8.
+
+---
+
+## Section 08 — Hardened Workspace Filesystem Engine
+
+- **Commit:** `pending` (`security(fs): add workspace storage jail with traversal, symlink, atomic write, and quota guards`)
+- **Phase Type:** Security Hardening
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Dedicated security commit implementing `WorkspaceFS`, the bulletproof
+filesystem abstraction that all workspace file operations must flow
+through. Defends against path traversal (plain, encoded, absolute,
+Windows-style), symlink escapes, control characters, resource exhaustion
+(file count/size/depth quotas), and partial writes — with optimistic
+concurrency via content-hash revisions.
+
+### 2. Key Files Created / Modified
+
+- `apps/api/src/services/fs-engine.ts` — `WorkspaceFS` class: `resolve()` jail, `assertNoSymlink()` segment walk, `listDir`, `readFile`, `writeFile` (atomic temp+rename, `expectedRevision` → 409 `REVISION_CONFLICT`), `mkdirEntry`, `renameEntry`, `deleteEntry`, `usage()` quota accounting, `LIMITS` constants, `revisionOf`, `looksBinary`.
+- `apps/api/src/services/fs-engine.test.ts` — 21 unit tests covering every attack vector.
+
+### 3. Architecture & Optimization Decisions
+
+- **Jail:** `resolve()` normalizes with `path.posix` semantics, rejects
+  absolute paths, drive letters, backslashes, NUL/control chars,
+  `..` segments (pre- and post-normalization), and any `%2e/%2f/%5c`
+  encoded traversal; final `path.resolve` result must remain strictly
+  under `<root>/<storageKey>`.
+- **Symlink policy:** rejected outright — `lstat` walk verifies every
+  existing segment; policy documented (workspaces contain no symlinks).
+- **Atomic writes:** temp file `.<rand>.tmp` in same directory + `rename`
+  — readers never observe partial content; temp files are same-dir so
+  rename is atomic on POSIX.
+- **Revision:** `sha256(content)[0:16].mtime36` — collision-resistant
+  content binding plus mtime for cheap change detection.
+- **Quotas:** 2 MiB text / 10 MiB upload per file, 100 MiB workspace,
+  500 files, depth 12 — enforced before write with accurate delta
+  accounting on overwrite.
+
+### 4. Security Controls & Threat Mitigation
+
+- Path traversal: `../`, `a/../../x`, `%2e%2e`, `%2E%2E%2F`, `/etc/passwd`,
+  `C:\`, `C:/`, NUL bytes, newline injection — all rejected (tested).
+- Symlink escape: `linkdir -> /tmp/outside` blocked for read/list/write
+  (tested).
+- Resource exhaustion: oversized writes rejected before touching disk;
+  workspace/file-count/depth ceilings; usage walker never follows
+  symlinks.
+- Integrity: revision conflicts return 409 with `serverRevision` so the
+  client can reconcile instead of silently overwriting.
+- Information leakage: errors are generic; absolute host paths never
+  appear in responses (`path` fields are workspace-relative).
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/api vitest run src/services/fs-engine.test.ts` — PASS (21/21).
+- `pnpm --filter @ide/api typecheck` — PASS.
+- `pnpm --filter @ide/api lint` — PASS.
+
+### 6. Known Limitations / Follow-ups
+
+TOCTOU between `assertNoSymlink` and `rename` is theoretically possible
+for a local attacker with write access to the workspace dir — acceptable
+because only the API process writes there and users cannot create
+symlinks through any endpoint. Hardlinks are not creatable via the API.
+The REST surface exposing this engine lands in Commit 9.
