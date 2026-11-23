@@ -516,3 +516,61 @@ for a local attacker with write access to the workspace dir — acceptable
 because only the API process writes there and users cannot create
 symlinks through any endpoint. Hardlinks are not creatable via the API.
 The REST surface exposing this engine lands in Commit 9.
+
+---
+
+## Section 09 — Workspace Filesystem REST Endpoints
+
+- **Commit:** `pending` (`feat(files): expose workspace file CRUD, upload, download, and revision conflict APIs`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Exposed the hardened `WorkspaceFS` engine over REST under
+`/api/v1/workspaces/:workspaceId/...`. Every route enforces
+`requireAuth` + `assertWorkspaceAccess` + global CSRF on mutations.
+
+### 2. Key Files Created / Modified
+
+- `apps/api/src/routes/files.ts` — `GET /files` (sorted listing),
+  `GET /file` (UTF-8 read + revision + binary guard),
+  `PUT /file` (save with `expectedRevision` → 409),
+  `POST /files` (create file/dir), `PATCH /files` (rename/move),
+  `DELETE /files`, `POST /upload` (multipart, 10 MiB streaming cap,
+  single-file), `GET /download` (attachment + `nosniff`).
+- `apps/api/src/routes/files.test.ts` — 7 integration tests.
+- `apps/api/src/app.ts` — route registration.
+
+### 3. Architecture & Optimization Decisions
+
+A `WorkspaceFS` instance is constructed per request from the workspace's
+opaque `storageKey` — stateless, no caching layer to invalidate. Directory
+listings sort directories-first then alphabetical per spec. Binary files
+are detected (NUL-byte heuristic) and rejected for text editing with a
+distinct `BINARY_FILE` error rather than corrupting content. Uploads
+stream through `@fastify/multipart` with an early abort at 10 MiB —
+memory-bounded by design (single file, concat of chunks).
+
+### 4. Security Controls & Threat Mitigation
+
+All paths flow through the Commit-8 engine (traversal/symlink/quota/
+atomic-write defenses). Download responses force
+`Content-Disposition: attachment` + `X-Content-Type-Options: nosniff` so
+uploaded HTML/SVG can never execute in the API origin. Upload enforces
+single-file and drains unexpected fields. Cross-tenant access verified
+denied (404).
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/api vitest run src/routes/files.test.ts` — PASS (7/7).
+- `pnpm --filter @ide/api typecheck` — PASS; `pnpm --filter @ide/api lint` — PASS.
+- Covered: list, write/read round-trip with revision, 409 stale-revision,
+  traversal rejection (`../`, `%2e%2e`), mkdir/rename/delete, multipart
+  upload + download headers, cross-tenant 404.
+
+### 6. Known Limitations / Follow-ups
+
+Uploads buffer in memory up to 10 MiB — acceptable per-file ceiling;
+direct-to-disk streaming can be added if larger files are needed.
+Copy/duplicate operations are not exposed (rename covers the common case).

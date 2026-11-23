@@ -12,6 +12,7 @@ import { AppError } from "./lib/errors.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { workspaceRoutes } from "./routes/workspaces.js";
+import { fileRoutes } from "./routes/files.js";
 import { authPlugin } from "./plugins/auth.js";
 import { csrfGuard, csrfPlugin } from "./plugins/csrf.js";
 import type { PrismaClient } from "@prisma/client";
@@ -149,6 +150,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(healthRoutes);
   await app.register(authRoutes);
   await app.register(workspaceRoutes);
+  await app.register(fileRoutes);
 
   return app;
 }
