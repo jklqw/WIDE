@@ -574,3 +574,66 @@ denied (404).
 Uploads buffer in memory up to 10 MiB — acceptable per-file ceiling;
 direct-to-disk streaming can be added if larger files are needed.
 Copy/duplicate operations are not exposed (rename covers the common case).
+
+---
+
+## Section 10 — Sandbox Package & Private Runner Service
+
+- **Commit:** `pending` (`feat(runner): create private runner service, sandbox image Dockerfiles, and runtime registry`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Created `packages/sandbox` (runtime allowlist registry + deterministic
+compiler diagnostic parsers) and `apps/runner`, the private Fastify
+orchestrator that is the ONLY service holding a Docker socket. Includes
+`SandboxManager` with lease tracking, multiplexed log streaming, hard
+timeouts, output ceilings, and an orphan reaper. Five pinned non-root
+runtime Dockerfiles + reproducible build script added.
+
+### 2. Key Files Created / Modified
+
+- `packages/sandbox/src/runtimes.ts` — `RUNTIMES` allowlist: image tags, fixed `buildArgv`/`runArgv`, compile/run timeouts, 1 MiB output ceiling; `languageForPath` extension map; `resolveArgv` placeholder substitution.
+- `packages/sandbox/src/diagnostics.ts` — GCC/G++/Go/javac/tsc/Python-traceback parsers; strips `/workspace/` prefixes.
+- `apps/runner/src/config/env.ts` — Zod env validation (port, secrets, storage root, OCI runtime).
+- `apps/runner/src/sandbox/policy.ts` — baseline container config (non-root uid 10001, workspace bind, tmpfs, network=none placeholder hardened fully in Commit 11).
+- `apps/runner/src/sandbox/manager.ts` — dockerode lifecycle: `runOnce` (container Cmd = argv, attach-before-start log demux, wait+kill on timeout), idle-container leases, 60s reaper sweeping expired + orphaned `managed-by=webide-runner` containers.
+- `apps/runner/src/index.ts` — Fastify skeleton, `/health` + `/ready`, secret-redacted logs, graceful shutdown.
+- `infra/docker/{sandbox-base,runtime-python,runtime-node,runtime-cpp,runtime-java,runtime-go}.Dockerfile` — uid/gid 10001, nologin shell, `/workspace` + `/tmp/build`.
+- `infra/docker/build-images.sh` + root `runner:build-images` script.
+
+### 3. Architecture & Optimization Decisions
+
+One-shot executions run the argv directly as container `Cmd` — no shell,
+no `docker exec` indirection, so there is zero command-injection surface.
+Logs attach before `start()` so no frame is lost; `modem.demux` splits
+stdout/stderr into bounded buffers (hard cap with `truncated` flag).
+Timeout kills the whole container — cgroup limits make this a complete
+process-tree kill. Leases carry `lastActivity` for the reaper; a docker
+`listContainers` sweep catches orphans from runner crashes.
+
+### 4. Security Controls & Threat Mitigation
+
+- Only allowlisted image tags from `RUNTIMES` can be instantiated —
+  arbitrary images are impossible by construction.
+- argv arrays are fixed templates; `{file}`/`{class}` substitution uses
+  already-validated workspace-relative paths (validated upstream).
+- Runner binds `127.0.0.1` by default; capability-token auth lands in
+  Commit 12 (endpoint surface not yet exposed).
+- Baseline policy already sets non-root user, `network=none`, tmpfs
+  `nosuid,nodev`; Commit 11 adds seccomp/cap-drop/cgroup ceilings.
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/sandbox typecheck|test|build` — PASS (9/9 tests).
+- `pnpm --filter @ide/runner typecheck|lint` — PASS.
+- `pnpm runner:build-images` — *(in progress at commit time; images built
+  and smoke-tested in Commit 13)*.
+
+### 6. Known Limitations / Follow-ups
+
+No execution endpoint yet — pipeline lands in Commit 13; PTY terminal in
+Commit 14; capability auth in Commit 12; full container hardening in
+Commit 11. `pnpm --filter @ide/runner test` has no suite yet (added in
+Commits 11–13).
