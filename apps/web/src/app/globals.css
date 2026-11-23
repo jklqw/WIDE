@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme="dark"] {
+  --bg-canvas: #0c0e12;
+  --bg-surface: #11141a;
+  --bg-panel: #161b22;
+  --bg-hover: #1e242e;
+  --border: #252c37;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #636e7b;
+  --accent: #3b82f6;
+  --success: #2ea043;
+  --warning: #d29922;
+  --error: #f85149;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg-canvas: #f6f8fa;
+  --bg-surface: #ffffff;
+  --bg-panel: #f0f2f5;
+  --bg-hover: #e6eaf0;
+  --border: #d8dee4;
+  --text-primary: #1f2328;
+  --text-secondary: #59636e;
+  --text-muted: #818b98;
+  --accent: #3b82f6;
+  --success: #1a7f37;
+  --warning: #9a6700;
+  --error: #cf222e;
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+}
+
+code,
+pre,
+.mono {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+* {
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.live-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
