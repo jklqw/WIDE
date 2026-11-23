@@ -1,0 +1,40 @@
+{
+  "name": "webide",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-based IDE with server-side sandboxed compilation and execution",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=20.18.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,runner,web -c blue,magenta,green \"pnpm --filter @ide/api dev\" \"pnpm --filter @ide/runner dev\" \"pnpm --filter @ide/web dev\"",
+    "build": "pnpm -r --filter=./apps/* --filter=./packages/* build",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:security": "vitest run tests/security",
+    "test:e2e": "playwright test",
+    "infra:up": "docker compose -f infra/compose/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/compose/docker-compose.yml down",
+    "db:migrate": "pnpm --filter @ide/database exec prisma migrate deploy",
+    "db:migrate:dev": "pnpm --filter @ide/database exec prisma migrate dev",
+    "db:seed": "pnpm --filter @ide/database seed",
+    "runner:build-images": "bash infra/docker/build-images.sh",
+    "clean": "pnpm -r exec rm -rf dist .next node_modules/.cache"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.10.0",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.15.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^2.1.0"
+  }
+}
