@@ -144,3 +144,57 @@ Development credentials are intentionally simple; production deployment
 must inject real secrets via environment (see `docs/operations.md` in
 Commit 20). Redis AOF `everysec` default is acceptable for dev; tune for
 production durability requirements.
+
+---
+
+## Section 03 — Shared Contracts & Protocol Schemas
+
+- **Commit:** `pending` (`feat(contracts): define shared Zod schemas for REST APIs, diagnostics, and WebSockets`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Created `packages/contracts` (`@ide/contracts`), the single source of
+truth for every REST DTO, error envelope, compiler diagnostic, and
+WebSocket message exchanged between `apps/web`, `apps/api`, and
+`apps/runner`. All schemas are strict Zod objects with bounded sizes.
+
+### 2. Key Files Created / Modified
+
+- `packages/contracts/src/errors.ts` — canonical `ApiErrorSchema` envelope (`code`, `message`, `requestId`, `details`).
+- `packages/contracts/src/auth.ts` — register/login requests, `UserProfile`, session payload.
+- `packages/contracts/src/workspaces.ts` — template IDs (`blank`, `python`, `javascript`, `typescript`, `c`, `cpp`, `java`, `go`, `html-web`), create/update/summary schemas.
+- `packages/contracts/src/filesystem.ts` — `WorkspaceEntry`, read/write with `revision`, create/rename/delete, upload metadata with 10 MiB ceiling.
+- `packages/contracts/src/executions.ts` — 8-state job status machine, `CompilerDiagnostic`, discriminated-union `ExecutionEvent` stream (`status`, `compile_diagnostics`, `stdout`, `stderr`, `completed`, `limit`, `error`).
+- `packages/contracts/src/terminal.ts` — `TerminalClientMessage`/`TerminalServerMessage` discriminated unions; PTY bounds `cols 20..300`, `rows 5..120`, 16 KiB input cap.
+- `packages/contracts/src/contracts.test.ts` — 11 vitest cases covering acceptance and rejection paths.
+
+### 3. Architecture & Optimization Decisions
+
+Discriminated unions for WS events make exhaustive handling type-safe in
+consumers and prevent malformed frames from reaching handlers. Size
+ceilings live in the schema layer so both API and runner enforce identical
+bounds. `.js` ESM import specifiers in `index.ts` keep NodeNext resolution
+correct for consumers.
+
+### 4. Security Controls & Threat Mitigation
+
+All user-controlled strings are length-bounded (emails 254, file content
+2 MiB, terminal input 16 KiB/frame, query strings ≤1024 chars) at the
+contract layer — the earliest possible validation boundary. Strict
+objects reject unexpected fields by default in Zod, reducing parser
+differential risk.
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/contracts build` — PASS (`tsc` clean).
+- `pnpm --filter @ide/contracts test` — PASS (11/11 tests).
+- `pnpm --filter @ide/contracts typecheck` — PASS.
+- `pnpm --filter @ide/contracts lint` — PASS.
+
+### 6. Known Limitations / Follow-ups
+
+Runtime image allowlist and capability-token payload schemas are defined
+in `packages/sandbox` (Commit 10/12) since they are runner-internal
+concerns, not browser-facing DTOs.
