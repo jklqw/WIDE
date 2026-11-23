@@ -697,3 +697,62 @@ expressed in OCI seccomp JSON — namespace creation is additionally
 blocked by `unshare`/`setns` denial plus userns-remap/gVisor in
 production. Local Docker provides container isolation, NOT microVM-grade
 isolation — documented honestly in `docs/security.md` (Commit 20).
+
+---
+
+## Section 12 — Network Egress Denial & Signed Internal Capabilities
+
+- **Commit:** `pending` (`security(network): enforce sandbox network=none and signed short-lived API-to-runner capabilities`)
+- **Phase Type:** Security Hardening
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Dedicated security commit isolating sandboxes from all networks and
+authenticating every API→runner call. `NetworkMode: "none"` is a hard
+constant in the container policy (sandboxes cannot reach Postgres, Redis,
+the API, host localhost, cloud metadata, or the internet). HMAC-SHA256
+capability tokens (≤60s TTL, scoped `execute`/`terminal`, single-use `jti`
+replay protection via Redis `SET NX PX`) gate all runner-internal routes.
+
+### 2. Key Files Created / Modified
+
+- `packages/sandbox/src/capability.ts` — `signCapability`/`verifyCapability`: base64url JSON payload + HMAC signature, timing-safe compare, expiry + scope checks, TTL hard-capped at 60s.
+- `packages/sandbox/src/capability.test.ts` — 7 unit tests (round-trip, tamper, wrong secret, expiry, scope, malformed, TTL cap).
+- `apps/runner/src/auth/capability.ts` — `requireCapability(request, reply, scope)` preHandler helper: header extraction, signature/expiry/scope verification, Redis jti replay denial (fail-closed on Redis outage).
+- `apps/runner/src/auth/capability.test.ts` — 5 integration tests incl. replay rejection.
+- `apps/api/src/services/runner-client.ts` — `mintCapability` + `runnerFetch` helper for API→runner calls.
+- `apps/api/src/config/env.ts` already carries `RUNNER_SHARED_SECRET` (Commit 5).
+
+### 3. Architecture & Optimization Decisions
+
+Capabilities are stateless HMAC tokens — no DB lookup on the runner;
+replay protection uses Redis `SET key 1 PX <remaining-ttl> NX` so a token
+is single-use even across replicas. Runner stays bound to `127.0.0.1`;
+in production it moves to a private Docker network unreachable from
+browsers. `apps/api` has zero `dockerode` dependency — verified by
+package manifest (only `apps/runner` depends on it).
+
+### 4. Security Controls & Threat Mitigation
+
+- **Egress:** `network=none` on every sandbox — SSRF to metadata services,
+  lateral movement to Postgres/Redis, and C2/beaconing are impossible.
+- **Request forgery:** only holders of `RUNNER_SHARED_SECRET` can mint
+  tokens; payload binds `userId`+`workspaceId`+`storageKey`+`scope`+`jti`.
+- **Replay:** single-use jti enforced atomically in Redis.
+- **Scope confusion:** `execute` tokens cannot open terminal sessions and
+  vice versa (`bad_scope` → 403).
+- **Timing:** `timingSafeEqual` on signatures.
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/sandbox test` — PASS (16/16 incl. 7 capability tests).
+- `pnpm --filter @ide/runner test` — PASS (15/15: 10 policy + 5 capability).
+- `pnpm --filter @ide/runner typecheck` — PASS.
+
+### 6. Known Limitations / Follow-ups
+
+jti replay store requires Redis; if Redis is down the runner fails closed
+(503) — acceptable since executions cannot proceed anyway. Runner HTTP
+surface remains loopback-only; production deployment must place it on an
+isolated network segment (documented in `docs/operations.md`).

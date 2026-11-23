@@ -15,7 +15,7 @@
 | 09     | Filesystem REST endpoints                     | pending     |
 | 10     | Sandbox package + runner + Dockerfiles        | pending     |
 | 11     | security(sandbox) seccomp/cgroup ceilings     | pending     |
-| 12     | security(network) network=none + capabilities | pending     |
+| 12     | security(network) network=none + capabilities | done        |
 | 13     | Compile&run pipeline + adapters + streaming   | pending     |
 | 14     | Interactive PTY terminal                      | pending     |
 | 15     | Web shell, auth, dashboard                    | pending     |
