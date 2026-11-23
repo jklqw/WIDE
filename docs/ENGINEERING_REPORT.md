@@ -869,3 +869,167 @@ Terminal sessions are per-runner-instance (no cross-replica attach).
 Idle expiry (30m) enforced by DB `expiresAt` + reaper sweep; live
 container-side idle kill on WS disconnect is immediate via DELETE call
 from the client; orphan cleanup relies on Commit-10 reaper.
+
+---
+
+## Section 15 — Web Shell, Auth UI & Workspace Dashboard
+
+- **Commit:** `pending` (`feat(web): add Next.js app shell, authentication pages, and workspace dashboard`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Next.js 15 App Router frontend scaffolded: dark/light theme system,
+API client with automatic CSRF token fetch + cookie credentials,
+login/register pages, workspace dashboard (list, filter, create with
+template picker, delete), and settings page (theme, font, tab size,
+word wrap, minimap, autosave interval persisted to localStorage).
+
+### 2. Key Files Created / Modified
+
+- `apps/web/package.json`, `next.config.mjs`, `tsconfig.json`,
+  `tailwind.config.ts`, `postcss.config.mjs` — Next 15 + React 19 +
+  Tailwind + Monaco/xterm deps.
+- `src/app/{layout,page,globals.css}` — theme bootstrap via
+  `data-theme`, CSS custom properties.
+- `src/app/{login,register,dashboard,settings}/page.tsx`.
+- `src/lib/api-client.ts` — typed fetch wrapper, CSRF header
+  injection, `ApiError` with server error codes.
+- `src/store/workbench.ts` — Zustand workbench state (files, panels,
+  diagnostics, output, cursor).
+
+### 3. Verification & Test Evidence
+
+- `pnpm --filter @ide/web typecheck` — PASS; `pnpm --filter @ide/web lint` — PASS.
+
+### 4. Known Limitations
+
+Production build not yet exercised in this environment (documented in
+final verification). UI verified via typecheck/lint; E2E in Commit 19.
+
+---
+
+## Section 16 — Monaco Workbench, Explorer & Command Palette
+
+- **Commit:** `pending` (`feat(web): add Monaco editor workbench with file explorer, tabs, and command palette`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Full IDE workbench: Monaco editor (lazy-loaded, language detection,
+autosave debounce, Ctrl+S), file explorer (tree navigation, create/
+rename/delete/download/upload via context menu), editor tabs with
+dirty indicators and middle-click close, Ctrl+P quick-open and
+Ctrl+Shift+P command palette, status bar (Ln/Col, language, modified
+state), resizable sidebar.
+
+### 2. Key Files Created / Modified
+
+- `packages/editor/src/index.ts` — extension→Monaco language map,
+  dark/light theme definitions.
+- `apps/web/src/components/{Explorer,EditorTabs,MonacoEditor}.tsx`.
+- `apps/web/src/app/workspace/[workspaceId]/page.tsx` — workbench
+  layout, global shortcuts, palette.
+
+### 3. Security Notes
+
+All file operations go through the jailed filesystem API (path
+validation, quota, CSRF, ownership). Monaco content is never injected
+as HTML. Save uses `expectedRevision` optimistic concurrency (409 →
+reload prompt).
+
+### 4. Verification & Test Evidence
+
+- `pnpm --filter @ide/web typecheck` — PASS; `pnpm --filter @ide/web lint` — PASS; `pnpm --filter @ide/editor typecheck` — PASS.
+
+---
+
+## Section 17 — xterm.js Terminal, Output Stream & Problems Panel
+
+- **Commit:** `pending` (`feat(web): add xterm terminal panel, execution output stream, and problems panel`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Bottom panel with three tabs: xterm.js terminal (FitAddon, WebLinks,
+256-color theme, WS bridge via single-use tickets), live execution
+output (stdout/stderr/system streams color-coded), and problems panel
+(compiler diagnostics clickable → open file at line). Run/Stop
+controls wire to the executions API + WS event stream.
+
+### 2. Key Files Created / Modified
+
+- `apps/web/src/components/BottomPanel.tsx`.
+
+### 3. Verification & Test Evidence
+
+- `pnpm --filter @ide/web typecheck` — PASS; `pnpm --filter @ide/web lint` — PASS.
+
+---
+
+## Section 18 — Web Security: CSP, Headers & Client Quotas
+
+- **Commit:** `pending` (`security(web): enforce CSP, security headers, and document client quotas`)
+- **Phase Type:** Security Hardening
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Content-Security-Policy enforced on all routes: `default-src 'self'`,
+`object-src 'none'`, `frame-ancestors 'none'`, `form-action 'self'`,
+worker/blob allowances scoped to Monaco/xterm needs, connect-src
+limited to API origin + WS. `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`.
+
+### 2. Key Files Modified
+
+- `apps/web/next.config.mjs` — headers() with full CSP.
+
+### 3. Security Controls
+
+- Clickjacking: frame-ancestors + X-Frame-Options DENY.
+- MIME sniffing: nosniff.
+- XSS: CSP script-src restricted; React escaping; Monaco content never
+  rendered as HTML.
+- Data exfiltration: connect-src whitelists API origin only.
+- Client quotas documented: upload 10 MiB/file, workspace quotas in API.
+
+### 4. Verification & Test Evidence
+
+- `pnpm --filter @ide/web lint` — PASS (config-only change).
+
+---
+
+## Section 19 — Test Suites & CI Pipeline
+
+- **Commit:** `pending` (`test: add integration suites and CI pipeline`)
+- **Phase Type:** Testing
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+GitHub Actions CI (`.github/workflows/ci.yml`): Postgres 16 + Redis 7
+services, pnpm install, Prisma generate, lint, typecheck, test, build.
+Unit/integration coverage accumulated across commits: contracts,
+sandbox runtimes/diagnostics/capabilities, runner policy invariants +
+capability enforcement, API auth/workspaces/filesystem/executions.
+
+### 2. Key Files Created / Modified
+
+- `.github/workflows/ci.yml`.
+- `infra/docker/runtime-node.Dockerfile` — npm mirror registry for
+  sandboxed image builds (environment registry restriction).
+
+### 3. Verification & Test Evidence
+
+- `pnpm --filter @ide/contracts test` — PASS.
+- `pnpm --filter @ide/sandbox test` — PASS (16/16).
+- `pnpm --filter @ide/api test` — PASS (auth 11, files 7, workspaces, fs-engine security suite).
+- `pnpm --filter @ide/runner test` — PASS (15/15).
+- Root `pnpm typecheck`/`lint`/`test`/`build` — final verification in Section 20.
+- Live container E2E: sandbox image builds + execution smoke test —
+  see Section 20 for honest status (build environment network
+  restrictions).
