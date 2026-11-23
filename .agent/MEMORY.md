@@ -32,3 +32,13 @@ phase boundaries.
 
 - See `.agent/WORKLOG.md` for current phase. `docs/ENGINEERING_REPORT.md`
   is the consolidated per-commit report.
+
+## Checkpoint — Project complete (2026-11-23)
+
+All 20 commits landed on main. Final state:
+- 91 tests passing across contracts/sandbox/database/editor/runner/api.
+- pnpm typecheck + lint clean; pnpm build verified (see ENGINEERING_REPORT §20).
+- Sandbox images build via `pnpm runner:build-images` (uses npmmirror registry flag for node image due to env network restrictions).
+- Local Docker isolation only — production needs SANDBOX_OCI_RUNTIME=runsc/Kata.
+- Execution dispatch is synchronous API→runner (BullMQ documented as follow-up); terminal sessions are per-runner-instance.
+- Git log --reverse --oneline is the source of truth for commit hashes in ENGINEERING_REPORT §20 table.

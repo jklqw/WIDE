@@ -3,7 +3,8 @@ import { z } from "zod";
 import Docker from "dockerode";
 import { requireCapability } from "../auth/capability.js";
 import type { SandboxManager } from "../sandbox/manager.js";
-import { needsBuildTmpfs, getRuntime } from "@ide/sandbox";
+import { getRuntime } from "@ide/sandbox";
+import { needsBuildTmpfs } from "../sandbox/policy.js";
 
 const TerminalCreateSchema = z.object({
   workspaceKey: z.string().regex(/^[a-zA-Z0-9_-]{8,64}$/),

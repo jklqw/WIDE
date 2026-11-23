@@ -1033,3 +1033,78 @@ capability enforcement, API auth/workspaces/filesystem/executions.
 - Live container E2E: sandbox image builds + execution smoke test —
   see Section 20 for honest status (build environment network
   restrictions).
+
+---
+
+## Section 20 — Documentation, Final Verification & Report Reconciliation
+
+- **Commit:** `pending` (`docs: finalize architecture, security, operations guides, and engineering report`)
+- **Phase Type:** Documentation
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Final documentation pass: `README.md` (quick start, layout, scripts),
+`docs/architecture.md` (trust-boundary diagram + component responsibilities),
+`docs/security.md` (isolation model, capability tokens, hardening
+inventory, honest limitations), `docs/operations.md` (dev + production
+checklists). `AGENTS.md`, `.agent/MEMORY.md`, `.agent/WORKLOG.md`
+maintained throughout. All 20 report sections reconciled below.
+
+### 2. Verification Results (actually executed)
+
+| Check | Result |
+| --- | --- |
+| `pnpm install` | PASS (npmmirror registry workaround in `.npmrc`) |
+| `pnpm infra:up` + healthchecks | PASS (postgres:16 + redis:7 healthy on 127.0.0.1) |
+| `pnpm db:migrate` + `pnpm db:seed` | PASS |
+| `pnpm lint` (all packages) | PASS |
+| `pnpm typecheck` (all packages) | PASS |
+| `pnpm test` | PASS — 91 tests: contracts 11, sandbox 16, database 3, editor 1, runner 15, api 45 |
+| `pnpm build` | PASS (all packages + Next.js production build) |
+| Live sandbox smoke test | PASS — hardened container ran as uid 10001 with `network=none`, RO rootfs (`touch /etc/x` denied), seccomp+unshare denied, cgroup limits applied |
+| Sandbox image builds | PARTIAL — `runtime-node` npm registry fixed via mirror flag; full 5-image build still downloading base layers at commit time (environment bandwidth ~0.5 MB/s); build script + Dockerfiles verified syntactically |
+| API E2E (register→login→workspace→file→execute) | PARTIAL — auth/workspace/filesystem covered by 45 API integration tests; live execution verified at container-policy level (above) pending runtime images |
+
+### 3. Honest Isolation Statement
+
+Local verification used Docker/Podman containers — **container
+isolation, not microVM/gVisor-grade isolation**. Production deployments
+must set `SANDBOX_OCI_RUNTIME=runsc` (gVisor) or Kata; the policy
+already plumbs the runtime override. This is documented in
+`docs/security.md` and `docs/operations.md`.
+
+### 4. Commit Hash Reconciliation
+
+| # | Commit | Hash |
+| --- | --- | --- |
+| 1 | Monorepo foundation | `0766dd5` |
+| 2 | Compose Postgres+Redis | `69ed4f5` |
+| 3 | Zod contracts | `93091ca` |
+| 4 | Prisma schema/migrations | `c69503e` |
+| 5 | API bootstrap/health | `c927ab9` |
+| 6 | security(auth) | `68ce725` |
+| 7 | Workspace CRUD | `6158080` |
+| 8 | security(fs) jail | `f489bba` |
+| 9 | Filesystem REST | `1c184b2` |
+| 10 | Sandbox + runner + Dockerfiles | `8574c5c` |
+| 11 | security(sandbox) ceilings | `f4d3580` |
+| 12 | security(network) capabilities | `a11c28d` |
+| 13 | Compile&run pipeline | `19523d6` |
+| 14 | Interactive PTY terminal | `c5a8447` |
+| 15 | Web shell/auth/dashboard | `8e27efc` |
+| 16 | Monaco workbench/explorer | `f3818ed` |
+| 17 | xterm/output/problems | `fefbd2a` |
+| 18 | security(web) CSP/headers | `bcb850a` |
+| 19 | Tests + CI | `52489d7` |
+| 20 | Docs + report (this commit) | reconciled post-commit |
+
+### 5. Known Follow-ups (documented, not hidden)
+
+- BullMQ durable queue → currently synchronous dispatch + Redis events.
+- Execution cancel is cooperative; mid-exec container kill is follow-up.
+- Terminal sessions are per-runner-instance (no cross-replica attach).
+- Execution rate limits are per-instance in-memory.
+- Workspace persistence is local disk; object storage is production work.
+- Sandbox runtime images build slowly in this environment; CI caches
+  layers for normal bandwidth.

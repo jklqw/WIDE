@@ -1,7 +1,10 @@
 {
   "defaultAction": "SCMP_ACT_ALLOW",
-  "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"],
-  "defaultErrnoRet": 1,
+  "architectures": [
+    "SCMP_ARCH_X86_64",
+    "SCMP_ARCH_X86",
+    "SCMP_ARCH_X32"
+  ],
   "comment": "webide sandbox profile: allow-by-default minus dangerous syscalls. Kernel namespace isolation is additionally enforced via user namespace remapping where available.",
   "syscalls": [
     {

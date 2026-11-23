@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  chmod,
   lstat,
   mkdir,
   readdir,
@@ -115,6 +116,10 @@ export class WorkspaceFS {
 
   async ensureRoot(): Promise<void> {
     await mkdir(this.root, { recursive: true });
+    // Sandbox containers run as uid/gid 10001 — the workspace root must be
+    // traversable/writable by them. Best-effort chmod; production deployments
+    // should align uids via userns-remap instead.
+    await chmod(this.root, 0o777).catch(() => {});
   }
 
   async listDir(userPath = ""): Promise<{

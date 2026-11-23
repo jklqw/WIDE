@@ -23,10 +23,22 @@
 | 17     | xterm terminal, output, problems panel        | pending     |
 | 18     | security(web) CSP/headers/quotas              | pending     |
 | 19     | Unit/integration/security/E2E tests + CI      | pending     |
-| 20     | Docs + final report reconciliation            | pending     |
+| 20     | Docs + final report reconciliation            | done        |
 
 ## Log
 
 - 2026-11-23 — Session start. Read GUIDE.md (948 lines, 20-commit plan).
   Environment audit: git init done; node 22.22.2, pnpm 10.34.9, Docker
   daemon OK. npmjs.org unreachable → .npmrc → npmmirror. Starting Commit 1.
+
+## 2026-11-23 — Commits 10–20 completed
+
+- Commit 10: packages/sandbox (runtime registry, diagnostics, capability tokens) + apps/runner (SandboxManager, policy, execute/terminal routes) + 6 sandbox Dockerfiles + build script.
+- Commit 11: seccomp-sandbox.json + full cgroup/ulimit/readonly/cap-drop policy + 10 invariant tests.
+- Commit 12: HMAC capability tokens (≤60s, single-use jti via Redis) + network=none enforcement.
+- Commit 13: compile+run pipeline — runner /internal/v1/execute, API executions CRUD + WS stream, live Redis pub/sub events.
+- Commit 14: PTY terminals — runner Tty exec + Redis pump, API ticket-based WS bridge, quotas.
+- Commits 15–17: Next.js web app — auth/dashboard/settings, Monaco workbench + explorer + palette, xterm/output/problems panel.
+- Commit 18: CSP + security headers.
+- Commit 19: CI workflow + test suites (91 tests passing).
+- Environment note: npm registry unreachable → .npmrc mirror + Dockerfile --registry flag for image builds.
