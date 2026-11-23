@@ -23,7 +23,8 @@
     "db:migrate:dev": "pnpm --filter @ide/database exec prisma migrate dev",
     "db:seed": "pnpm --filter @ide/database seed",
     "runner:build-images": "bash infra/docker/build-images.sh",
-    "clean": "pnpm -r exec rm -rf dist .next node_modules/.cache"
+    "clean": "pnpm -r exec rm -rf dist .next node_modules/.cache",
+    "db:generate": "pnpm --filter @ide/database exec prisma generate"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
