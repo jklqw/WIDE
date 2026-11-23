@@ -258,3 +258,61 @@ runnable starter templates plus an idempotent seed script.
 Templates are plain data hydrated into the workspace storage jail at
 creation time (Commit 7). Migrations are forward-only; `migrate deploy` is
 used for repeatable environments.
+
+---
+
+## Section 05 — API Service Bootstrap, Env Validation & Observability
+
+- **Commit:** `pending` (`feat(api): scaffold Fastify API with env validation, redacted Pino logs, and health probes`)
+- **Phase Type:** Foundation
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Scaffolded `apps/api` (`@ide/api`), the Fastify 5 backend that owns auth,
+workspaces, the filesystem API, and the execution/terminal gateways.
+Fail-fast Zod env validation, structured Pino logging with secret
+redaction, request correlation IDs, canonical error envelope, and
+liveness/readiness probes are all in place.
+
+### 2. Key Files Created / Modified
+
+- `apps/api/src/config/env.ts` — Zod-validated env; refuses production boot with placeholder secrets.
+- `apps/api/src/lib/errors.ts` — `AppError` hierarchy (400/401/403/404/409/429/500 factories).
+- `apps/api/src/app.ts` — `buildApp` factory: helmet, CORS (credentials, explicit origin), cookie, rate-limit (300/min/IP), websocket, multipart (10 MiB cap), body limit 5 MiB, global error + 404 handlers emitting the canonical envelope.
+- `apps/api/src/routes/health.ts` — `/api/v1/health` (liveness) and `/api/v1/ready` (Postgres `SELECT 1` + Redis `PING`, 503 on degradation).
+- `apps/api/src/index.ts` — composition root: loads env, wires Prisma + ioredis, graceful SIGINT/SIGTERM shutdown.
+- `apps/api/src/config/env.test.ts` — 4 vitest cases for env validation.
+
+### 3. Architecture & Optimization Decisions
+
+`buildApp(deps)` is a pure factory so integration tests can inject Prisma/
+Redis or omit them without booting the full process. Request IDs are
+UUIDs generated per request and echoed via `x-request-id` and the error
+envelope — enabling log correlation without trusting client-supplied IDs
+for security decisions. `trustProxy: false` prevents IP spoofing of
+rate-limit keys in dev.
+
+### 4. Security Controls & Threat Mitigation
+
+- Pino `redact` paths cover `authorization`, `cookie`, `password`,
+  `token`, `secret` fields so credentials never hit logs.
+- Global rate limit (300 req/min/IP) as baseline abuse control.
+- Error handler never leaks stack traces or host paths — 5xx return a
+  generic message while full error is logged server-side.
+- Production boot refuses placeholder secrets (defense against shipping
+  `.env.example` values).
+- Helmet applied at API layer; CSP tuned in Commit 18 for the web app.
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/api typecheck` — PASS.
+- `pnpm --filter @ide/api lint` — PASS.
+- `pnpm --filter @ide/api test` — PASS (4/4 env tests).
+- `pnpm dev` boot + `curl /api/v1/health` → `{"status":"ok"}`; `curl /api/v1/ready` → `{"status":"ready","checks":{"postgres":"ok","redis":"ok"}}`; unknown route → canonical 404 envelope.
+
+### 6. Known Limitations / Follow-ups
+
+Auth, workspace, filesystem, execution, and terminal routes land in
+Commits 6–14. Redis/BullMQ producer wiring for execution jobs arrives in
+Commit 13; terminal tickets in Commit 14.
