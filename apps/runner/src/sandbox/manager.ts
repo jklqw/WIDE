@@ -16,6 +16,8 @@ export interface RunOptions {
   timeoutMs: number;
   maxOutputBytes: number;
   stdin?: string;
+  /** Live chunk callback for streaming (stdout/stderr demuxed). */
+  onChunk?: (stream: "stdout" | "stderr", chunk: Buffer) => void;
 }
 
 interface Lease {
@@ -137,9 +139,69 @@ export class SandboxManager {
     }
   }
 
+  /** Run argv inside an existing (idle) container via docker exec. */
+  async execRun(
+    containerId: string,
+    argv: string[],
+    opts: RunOptions,
+  ): Promise<RunResult> {
+    this.touch(containerId);
+    const container = this.docker.getContainer(containerId);
+    const started = Date.now();
+
+    const exec = await container.exec({
+      Cmd: argv,
+      AttachStdout: true,
+      AttachStderr: true,
+      AttachStdin: !!opts.stdin,
+      Tty: false,
+      Env: ["HOME=/tmp"],
+      WorkingDir: "/workspace",
+    });
+    const stream = (await exec.start({ hijack: true, stdin: !!opts.stdin })) as NodeJS.ReadWriteStream & {
+      destroy(): void;
+    };
+    const logs = this.demuxStream(stream, opts.maxOutputBytes);
+    if (opts.stdin) {
+      stream.write(opts.stdin);
+      stream.end();
+    }
+
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      void container.kill().catch(() => {});
+    }, opts.timeoutMs);
+
+    const deadline = Date.now() + opts.timeoutMs + 10_000;
+    let exitCode = -1;
+    for (;;) {
+      const st = await exec.inspect().catch(() => null);
+      if (st && st.Running === false) {
+        exitCode = st.ExitCode ?? -1;
+        break;
+      }
+      if (Date.now() > deadline) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    clearTimeout(timeout);
+    stream.destroy();
+    await Promise.race([logs.done, new Promise((r) => setTimeout(r, 800))]);
+
+    return {
+      exitCode,
+      stdout: Buffer.concat(logs.stdoutChunks).toString("utf8"),
+      stderr: Buffer.concat(logs.stderrChunks).toString("utf8"),
+      durationMs: Date.now() - started,
+      timedOut,
+      outputTruncated: logs.truncated,
+    };
+  }
+
   private demuxStream(
     stream: NodeJS.ReadWriteStream,
     maxOutputBytes: number,
+    onChunk?: (stream: "stdout" | "stderr", chunk: Buffer) => void,
   ): DemuxedOutput {
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
@@ -156,12 +218,13 @@ export class SandboxManager {
       }
     ).modem;
 
-    const makeSink = (chunks: Buffer[]) =>
+    const makeSink = (chunks: Buffer[], which: "stdout" | "stderr") =>
       new Writable({
         write(chunk: Buffer, _enc, cb) {
           state.outputBytes += chunk.length;
           if (state.outputBytes <= maxOutputBytes) chunks.push(chunk);
           else state.truncated = true;
+          onChunk?.(which, chunk);
           cb();
         },
       });
@@ -171,7 +234,7 @@ export class SandboxManager {
       stream.on("close", resolve);
       stream.on("error", resolve);
     });
-    modem.demux(stream, makeSink(stdoutChunks), makeSink(stderrChunks));
+    modem.demux(stream, makeSink(stdoutChunks, "stdout"), makeSink(stderrChunks, "stderr"));
 
     return {
       stdoutChunks,

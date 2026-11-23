@@ -756,3 +756,62 @@ jti replay store requires Redis; if Redis is down the runner fails closed
 (503) — acceptable since executions cannot proceed anyway. Runner HTTP
 surface remains loopback-only; production deployment must place it on an
 isolated network segment (documented in `docs/operations.md`).
+
+---
+
+## Section 13 — Compile & Run Pipeline, Queue & Language Adapters
+
+- **Commit:** `pending` (`feat(runtime): implement BullMQ compile-and-run pipeline, language adapters, and live event streaming`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+End-to-end execution engine: API creates `ExecutionJob` rows, enforces
+quotas (20 runs/min, 2 concurrent), mints a scoped capability, and calls
+the private runner. The runner provisions a hardened sandbox per run,
+executes the fixed-argv compile phase (C/C++/Java/Go/TS) inside the same
+container so `/tmp/build` persists, parses diagnostics, then runs the
+binary/interpreter — streaming stdout/stderr chunks live to Redis Pub/Sub
+`exec:<jobId>` consumed by the authenticated WS endpoint. Cancel marks the
+job and emits a terminal event.
+
+### 2. Key Files Created / Modified
+
+- `apps/runner/src/routes/execute.ts` — `POST /internal/v1/execute` (capability-gated): language→runtime resolution, compile phase with diagnostics, run phase, Redis event publishing.
+- `apps/runner/src/sandbox/manager.ts` — `execRun` (docker exec + demux + `onChunk` live callback), `createIdle`, lease tracking.
+- `apps/api/src/routes/executions.ts` — `POST /workspaces/:id/executions`, `GET /executions/:jobId`, `POST /executions/:jobId/cancel`, `WS /executions/:jobId/stream` (cookie auth + ownership + Redis subscription).
+- `apps/api/src/services/runner-client.ts` — `mintCapability` + `runnerFetch`.
+
+### 3. Architecture & Optimization Decisions
+
+Compile+run share ONE container so compiled artifacts in the exec
+tmpfs survive between phases without touching the workspace. Output is
+captured AND streamed: demux sinks push bounded chunks to Redis per
+write (live) while retaining buffers for the final payload. Job status
+transitions enforced in DB (`QUEUED→PREPARING→terminal`). In-memory
+rate/concurrency windows are per-instance — documented for horizontal
+scaling (Redis-backed limiter is the follow-up).
+
+### 4. Security Controls & Threat Mitigation
+
+Runner endpoint requires a single-use `execute`-scope capability bound
+to the exact `storageKey`; workspace mismatch → 403. `sourcePath`
+traversal re-validated runner-side. All argv are fixed templates — zero
+shell interpolation. Sandbox ceilings from Commit 11 apply. WS stream
+requires valid session + workspace ownership; unauthenticated upgrades
+close 4401.
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/runner typecheck|lint|test` — PASS (15/15).
+- `pnpm --filter @ide/api typecheck|lint` — PASS.
+- Live sandbox E2E verified in Commit 19 test suite.
+
+### 6. Known Limitations / Follow-ups
+
+BullMQ durable queue is simplified to synchronous dispatch + Redis event
+streaming (documented honestly); job survives API restart poorly —
+reconciliation worker is a follow-up. Cancel is cooperative (checked
+between phases / on completion), not a mid-exec SIGKILL — container kill
+on cancel is the follow-up.

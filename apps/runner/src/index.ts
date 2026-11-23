@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import { loadRunnerEnv, type RunnerEnv } from "./config/env.js";
 import { SandboxManager } from "./sandbox/manager.js";
+import { executeRoutes } from "./routes/execute.js";
 import { Redis } from "ioredis";
 
 declare module "fastify" {
@@ -46,6 +47,8 @@ async function main() {
     isolation: env.SANDBOX_OCI_RUNTIME || "runc",
     timestamp: new Date().toISOString(),
   }));
+
+  await app.register(executeRoutes);
 
   app.get("/ready", async (_request, reply) => {
     try {

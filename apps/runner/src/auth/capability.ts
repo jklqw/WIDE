@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { verifyCapability, type CapabilityPayload } from "@ide/sandbox";
 import type { Redis } from "ioredis";
 
