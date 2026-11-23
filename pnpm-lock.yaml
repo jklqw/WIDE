@@ -105,9 +105,6 @@ importers:
       '@ide/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@ide/sandbox':
-        specifier: workspace:*
-        version: link:../../packages/sandbox
       dockerode:
         specifier: ^4.0.0
         version: 4.0.12
@@ -124,6 +121,9 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
     devDependencies:
+      '@ide/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@types/dockerode':
         specifier: ^3.3.0
         version: 3.3.47

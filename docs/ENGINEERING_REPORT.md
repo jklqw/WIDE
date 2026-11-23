@@ -637,3 +637,63 @@ No execution endpoint yet — pipeline lands in Commit 13; PTY terminal in
 Commit 14; capability auth in Commit 12; full container hardening in
 Commit 11. `pnpm --filter @ide/runner test` has no suite yet (added in
 Commits 11–13).
+
+---
+
+## Section 11 — Container Isolation, Seccomp, Non-Root & Resource Ceilings
+
+- **Commit:** `pending` (`security(sandbox): enforce non-root, cap-drop ALL, seccomp, RO rootfs, and cgroup resource limits`)
+- **Phase Type:** Security Hardening
+- **Date (UTC):
+
+### 1. Summary of Changes
+
+Dedicated security commit locking down the sandbox container runtime at
+the Linux boundary. `infra/docker/seccomp-sandbox.json` blocks ~50
+dangerous syscalls; `policy.ts` now emits a fully hardened container spec:
+non-root uid/gid 10001, `CapDrop: ["ALL"]`, `no-new-privileges`, custom
+seccomp profile, read-only rootfs, `network=none`, 1 vCPU / 512 MiB /
+64-PID cgroup ceilings, swap disabled, `nofile`/`fsize` ulimits, and
+bounded tmpfs mounts. 10 invariant tests prove the generated config.
+
+### 2. Key Files Created / Modified
+
+- `infra/docker/seccomp-sandbox.json` — allow-by-default profile with `SCMP_ACT_ERRNO` on ptrace, mount family, module loading, bpf, userfaultfd, keyctl, namespace ops (unshare/setns), perf/io_uring, landlock, pidfd, etc.
+- `apps/runner/src/sandbox/policy.ts` — full `HostConfig` ceilings, seccomp path resolution (`SANDBOX_SECCOMP_PROFILE` override), OCI runtime passthrough, read-only workspace option, hardened default env (GOCACHE/GOPATH in tmpfs, `GOPROXY=off`, unbuffered Python).
+- `apps/runner/src/sandbox/policy.test.ts` — 10 tests asserting every invariant.
+
+### 3. Architecture & Optimization Decisions
+
+Seccomp uses allow-by-default + explicit syscall denylist: writing a
+complete allowlist by hand risks breaking legitimate compiler/runtime
+behavior (JVMs and Go especially need unusual syscalls), while the
+denylist removes the clearly-dangerous primitives. Deeper isolation
+(userns remap, gVisor `runsc`, Kata) is the production path via
+`SANDBOX_OCI_RUNTIME`. `/tmp/build` exec tmpfs exists ONLY for compiled
+languages and dies with the container. `MemorySwap == Memory` disables
+swap outright.
+
+### 4. Security Controls & Threat Mitigation
+
+- Privilege escalation: non-root + cap-drop ALL + no-new-privileges + RO
+  rootfs make privilege gain inside the sandbox ineffective.
+- Kernel attack surface: seccomp blocks ptrace/process_vm, module
+  loading, bpf, io_uring, namespace escape primitives.
+- Resource exhaustion: 1 vCPU, 512 MiB RAM, 64 PIDs (fork-bomb safe),
+  128 MiB /tmp + 64 MiB build tmpfs, 32 MiB max file size, 256 fds.
+- Filesystem: only the single workspace bind is writable; tmpfs is
+  `nosuid,nodev`; `/tmp/build` wiped with container.
+- Network: `NetworkMode: "none"` (enforced here, semantics commit 12).
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/runner test` — PASS (10/10 policy invariant tests).
+- `pnpm --filter @ide/runner typecheck` — PASS; `pnpm --filter @ide/runner lint` — PASS.
+
+### 6. Known Limitations / Follow-ups
+
+Docker's `clone` flag restrictions (CLONE_NEWUSER etc.) cannot be
+expressed in OCI seccomp JSON — namespace creation is additionally
+blocked by `unshare`/`setns` denial plus userns-remap/gVisor in
+production. Local Docker provides container isolation, NOT microVM-grade
+isolation — documented honestly in `docs/security.md` (Commit 20).
