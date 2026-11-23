@@ -93,3 +93,54 @@ ESLint flat config (`eslint.config.mjs`, typescript-eslint) and per-package
 `lint`/`typecheck`/`test` scripts are introduced as packages are scaffolded
 in later commits; root commands become meaningful once workspace packages
 exist.
+
+---
+
+## Section 02 — Local Infrastructure (PostgreSQL & Redis)
+
+- **Commit:** `pending` (`chore(infra): add local Docker Compose for PostgreSQL 16 and Redis 7`)
+- **Phase Type:** Foundation
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Added `infra/compose/docker-compose.yml` defining the two backing services
+required by the platform: PostgreSQL 16 (Alpine) and Redis 7 (Alpine). Both
+are bound strictly to `127.0.0.1` so they are never exposed on LAN
+interfaces. Wired `pnpm infra:up` / `pnpm infra:down` root scripts.
+
+### 2. Key Files Created / Modified
+
+- `infra/compose/docker-compose.yml` — postgres + redis services, healthchecks, named volumes.
+- `package.json` — `infra:up` / `infra:down` scripts.
+
+### 3. Architecture & Optimization Decisions
+
+Postgres uses the official `postgres:16-alpine` image with `pg_isready`
+healthcheck and a named volume for durability. Redis runs with
+`--maxmemory 256mb --maxmemory-policy allkeys-lru` (safe for BullMQ job
+queues where evicting stale keys beats OOM) plus AOF persistence and a
+`redis-cli ping` healthcheck. Loopback-only port bindings eliminate
+accidental network exposure in development.
+
+### 4. Security Controls & Threat Mitigation
+
+Services bind to `127.0.0.1` only — no `0.0.0.0` exposure. Default dev
+credentials (`webide/webide`) are documented placeholders for local use
+only and must be overridden via env in any shared environment. No secrets
+are committed.
+
+### 5. Verification & Test Evidence
+
+- `pnpm infra:up` — PASS; both containers created and started.
+- `docker inspect --format '{{.State.Health.Status}}'` — `healthy` for
+  `webide-infra-postgres-1` and `webide-infra-redis-1`.
+- `docker compose ps` — both services `Up`, ports `127.0.0.1:5432` and
+  `127.0.0.1:6379` only.
+
+### 6. Known Limitations / Follow-ups
+
+Development credentials are intentionally simple; production deployment
+must inject real secrets via environment (see `docs/operations.md` in
+Commit 20). Redis AOF `everysec` default is acceptable for dev; tune for
+production durability requirements.

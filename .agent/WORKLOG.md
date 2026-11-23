@@ -5,7 +5,7 @@
 | Commit | Title                                         | Status      |
 | ------ | --------------------------------------------- | ----------- |
 | 01     | Monorepo foundation, tooling, agent memory    | done        |
-| 02     | Local infra (Postgres+Redis compose)          | pending     |
+| 02     | Local infra (Postgres+Redis compose)          | done        |
 | 03     | Shared contracts (Zod)                        | pending     |
 | 04     | Database schema + templates                   | pending     |
 | 05     | API bootstrap, env validation, health         | pending     |
