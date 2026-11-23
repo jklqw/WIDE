@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { loadRunnerEnv, type RunnerEnv } from "./config/env.js";
 import { SandboxManager } from "./sandbox/manager.js";
 import { executeRoutes } from "./routes/execute.js";
+import { terminalRoutes } from "./routes/terminal.js";
 import { Redis } from "ioredis";
 
 declare module "fastify" {
@@ -49,6 +50,7 @@ async function main() {
   }));
 
   await app.register(executeRoutes);
+  await app.register(terminalRoutes);
 
   app.get("/ready", async (_request, reply) => {
     try {

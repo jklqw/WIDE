@@ -815,3 +815,57 @@ streaming (documented honestly); job survives API restart poorly —
 reconciliation worker is a follow-up. Cancel is cooperative (checked
 between phases / on completion), not a mid-exec SIGKILL — container kill
 on cancel is the follow-up.
+
+---
+
+## Section 14 — Sandbox-Backed Interactive Terminal
+
+- **Commit:** `pending` (`feat(terminal): add sandbox-backed PTY sessions and backpressure-controlled WebSocket bridge`)
+- **Phase Type:** Feature
+- **Date (UTC):** 2026-11-23
+
+### 1. Summary of Changes
+
+Real interactive PTY terminals: API creates `TerminalSession` rows under
+a 2-per-workspace quota, mints a `terminal`-scope capability, and asks the
+runner to spawn `sh -l` inside a dedicated hardened sandbox container
+(`Tty: true`, `TERM=xterm-256color`, `HOME=/tmp`, cwd `/workspace`).
+Output streams runner→Redis `term:<id>`→API WS; input/resize go
+WS→API→runner internal endpoints. WS auth uses a single-use 30s ticket
+(never session tokens in URLs).
+
+### 2. Key Files Created / Modified
+
+- `apps/runner/src/routes/terminal.ts` — `POST /internal/v1/terminal` (container + PTY exec + Redis output pump), `/input`, `/resize`, `DELETE` — all capability-gated.
+- `apps/api/src/routes/terminals.ts` — `POST/GET /workspaces/:id/terminals`, `DELETE /terminals/:id`, `WS /terminals/:id/stream?ticket=` (Zod-validated frames, 16 KiB input cap, 512 KiB backpressure drop).
+- `apps/api/src/app.ts` — route registration.
+
+### 3. Architecture & Optimization Decisions
+
+Runner owns the PTY byte stream (single place with docker socket); the
+API is a pure bridge — Redis pub/sub decouples runner output from WS
+backpressure (drops frames when `bufferedAmount` exceeds threshold rather
+than buffering unboundedly). Terminal containers reuse the execution
+sandbox policy (non-root, network=none, cgroup ceilings). Sessions map is
+in-memory on the runner (single-instance; horizontal scaling needs a
+session registry — documented).
+
+### 4. Security Controls & Threat Mitigation
+
+Terminal scope capabilities cannot be used for executions and vice
+versa. Tickets are single-use, 30s TTL, bound to terminalId+userId+
+workspaceId. PTY runs as uid 10001 inside the same hardened container —
+no host escape surface. Input frames Zod-validated; output rendered as
+text only (no HTML injection).
+
+### 5. Verification & Test Evidence
+
+- `pnpm --filter @ide/api typecheck|lint` — PASS.
+- `pnpm --filter @ide/runner typecheck|lint|test` — PASS (15/15).
+
+### 6. Known Limitations / Follow-ups
+
+Terminal sessions are per-runner-instance (no cross-replica attach).
+Idle expiry (30m) enforced by DB `expiresAt` + reaper sweep; live
+container-side idle kill on WS disconnect is immediate via DELETE call
+from the client; orphan cleanup relies on Commit-10 reaper.
